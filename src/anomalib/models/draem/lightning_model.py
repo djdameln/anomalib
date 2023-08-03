@@ -33,11 +33,11 @@ class Draem(AnomalyModule):
     """
 
     def __init__(
-        self, enable_sspcab: bool = False, sspcab_lambda: float = 0.1, anomaly_source_path: str | None = None
+        self, enable_sspcab: bool = False, sspcab_lambda: float = 0.1, augmentation_dataset: str | None = None
     ) -> None:
         super().__init__()
 
-        self.augmenter = Augmenter(anomaly_source_path)
+        self.augmenter = Augmenter(augmentation_dataset)
         self.model = DraemModel(sspcab=enable_sspcab)
         self.loss = DraemLoss()
         self.sspcab = enable_sspcab
@@ -124,7 +124,7 @@ class DraemLightning(Draem):
         super().__init__(
             enable_sspcab=hparams.model.enable_sspcab,
             sspcab_lambda=hparams.model.sspcab_lambda,
-            anomaly_source_path=hparams.model.anomaly_source_path,
+            augmentation_dataset=hparams.model.augmentation_dataset,
         )
         self.hparams: DictConfig | ListConfig  # type: ignore
         self.save_hyperparameters(hparams)
@@ -147,4 +147,6 @@ class DraemLightning(Draem):
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         """Configure the Adam optimizer."""
-        return torch.optim.Adam(params=self.model.parameters(), lr=self.hparams.model.lr)
+        optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.hparams.model.lr)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[400, 600], gamma=0.1)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}

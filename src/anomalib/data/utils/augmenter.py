@@ -12,9 +12,9 @@
 
 from __future__ import annotations
 
-import glob
 import math
 import random
+from pathlib import Path
 
 import cv2
 import imgaug.augmenters as iaa
@@ -23,7 +23,16 @@ import torch
 from torch import Tensor
 from torchvision.datasets.folder import IMG_EXTENSIONS
 
+from anomalib.data.utils.download import DownloadInfo, download_and_extract
 from anomalib.data.utils.generators.perlin import random_2d_perlin
+
+DTD_DOWNLOAD_INFO = DownloadInfo(
+    name="dtd",
+    url="https://www.robots.ox.ac.uk/~vgg/data/dtd/download/dtd-r1.0.1.tar.gz",
+    hash="fff73e5086ae6bdbea199a49dfb8a4c1",
+)
+
+SOURCE_DATASETS = {"dtd": DTD_DOWNLOAD_INFO}
 
 
 def nextpow2(value):
@@ -43,17 +52,16 @@ class Augmenter:
 
     def __init__(
         self,
-        anomaly_source_path: str | None = None,
+        augmentation_dataset: str | None = None,
         p_anomalous: float = 0.5,
         beta: float | tuple[float, float] = (0.2, 1.0),
     ):
         self.p_anomalous = p_anomalous
         self.beta = beta
 
-        self.anomaly_source_paths = []
-        if anomaly_source_path is not None:
-            for img_ext in IMG_EXTENSIONS:
-                self.anomaly_source_paths.extend(glob.glob(anomaly_source_path + "/**/*" + img_ext, recursive=True))
+        self.augmentation_samples: list[Path] = []
+        if augmentation_dataset is not None:
+            self.get_augmentation_samples(augmentation_dataset)
 
         self.augmenters = [
             iaa.GammaContrast((0.5, 2.0), per_channel=True),
@@ -69,6 +77,25 @@ class Augmenter:
         ]
         self.rot = iaa.Sequential([iaa.Affine(rotate=(-90, 90))])
 
+    def get_augmentation_samples(self, augmentation_dataset: str):
+        """Retrieve a list of paths to sample images that will be used as augmentation source.
+
+        Args:
+            augmentation_dataset (str): Name of the dataset or path to root of the dataset.S
+        """
+        if augmentation_dataset in SOURCE_DATASETS:
+            download_info = SOURCE_DATASETS[augmentation_dataset]
+            dataset_path = Path("./datasets/augmentation") / download_info.name
+            if not dataset_path.exists():
+                # check if dataset has been previously downloaded
+                download_and_extract(dataset_path, download_info)
+        elif Path(augmentation_dataset).exists():
+            dataset_path = Path(augmentation_dataset)
+        else:
+            raise ValueError(f"Anomaly source dataset not recognized: {augmentation_dataset}")
+        for img_ext in IMG_EXTENSIONS:
+            self.augmentation_samples.extend(dataset_path.rglob("*" + img_ext))
+
     def rand_augmenter(self) -> iaa.Sequential:
         """Selects 3 random transforms that will be applied to the anomaly source images.
 
@@ -80,7 +107,7 @@ class Augmenter:
         return aug
 
     def generate_perturbation(
-        self, height: int, width: int, anomaly_source_path: str | None
+        self, height: int, width: int, anomaly_source_path: Path | str | None
     ) -> tuple[np.ndarray, np.ndarray]:
         """Generate an image containing a random anomalous perturbation using a source image.
 
@@ -111,7 +138,7 @@ class Augmenter:
 
         # Load anomaly source image
         if anomaly_source_path:
-            anomaly_source_img = cv2.imread(anomaly_source_path)
+            anomaly_source_img = cv2.imread(str(anomaly_source_path))
             anomaly_source_img = cv2.resize(anomaly_source_img, dsize=(width, height))
         else:  # if no anomaly source is specified, we use the perlin noise as anomalous source
             anomaly_source_img = np.expand_dims(perlin_noise, 2).repeat(3, 2)
@@ -147,7 +174,7 @@ class Augmenter:
                 masks_list.append(torch.zeros((1, height, width)))
             else:
                 anomaly_source_path = (
-                    random.sample(self.anomaly_source_paths, 1)[0] if len(self.anomaly_source_paths) > 0 else None
+                    random.sample(self.augmentation_samples, 1)[0] if len(self.augmentation_samples) > 0 else None
                 )
                 perturbation, mask = self.generate_perturbation(height, width, anomaly_source_path)
                 perturbations_list.append(Tensor(perturbation).permute((2, 0, 1)))
