@@ -133,6 +133,7 @@ def get_datamodule(config: DictConfig | ListConfig) -> AnomalibDataModule:
             test_split_ratio=config.dataset.test_split_ratio,
             val_split_mode=config.dataset.val_split_mode,
             val_split_ratio=config.dataset.val_split_ratio,
+            seed=config.dataset.get("seed")
         )
     elif config.dataset.format.lower() == DataFormat.FOLDER_3D:
         datamodule = Folder3D(

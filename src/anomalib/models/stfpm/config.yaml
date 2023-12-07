@@ -1,12 +1,15 @@
 dataset:
-  name: mvtec
-  format: mvtec
-  path: ./datasets/MVTec
-  category: bottle
-  task: segmentation
+  name: vnat
+  format: folder
+  path: ./datasets/vnat/epoxy_image
+  normal_dir: good
+  abnormal_dir: bad
+  normal_test_dir: null
+  mask_dir: null
+  extensions: null
+  task: classification # options: [classification, segmentation]
   train_batch_size: 32
   eval_batch_size: 32
-  inference_batch_size: 32
   num_workers: 8
   image_size: 256 # dimensions to which images are resized (mandatory)
   center_crop: null # dimensions to which images are center-cropped after resizing (optional)
@@ -25,6 +28,7 @@ dataset:
     remove_border_count: 0
     use_random_tiling: False
     random_tile_count: 16
+  seed: 42
 
 model:
   name: stfpm
@@ -38,7 +42,7 @@ model:
   weight_decay: 0.0001
   early_stopping:
     patience: 5
-    metric: pixel_AUROC
+    metric: image_AUROC
     mode: max
   normalization_method: min_max # options: [null, min_max, cdf]
 
@@ -59,7 +63,7 @@ visualization:
   save_images: True # save images to the file system
   log_images: True # log images to the available loggers (if any)
   image_save_path: null # path to which images will be saved
-  mode: full # options: ["full", "simple"]
+  mode: simple # options: ["full", "simple"]
 
 project:
   seed: 0
