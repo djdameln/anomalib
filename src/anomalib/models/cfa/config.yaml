@@ -1,14 +1,17 @@
 dataset:
-  name: mvtec #options: [mvtec, btech, folder]
-  format: mvtec
-  path: ./datasets/MVTec
-  category: bottle
-  task: segmentation
-  train_batch_size: 4
-  eval_batch_size: 4
-  inference_batch_size: 4
+  name: vnat_laser_mark
+  format: folder
+  path: ./datasets/vnat/Laser Mark
+  normal_dir: good
+  abnormal_dir: bad
+  normal_test_dir: null
+  mask_dir: null
+  extensions: null
+  task: classification # options: [classification, segmentation]
+  train_batch_size: 32
+  eval_batch_size: 32
   num_workers: 8
-  image_size: 224 # dimensions to which images are resized (mandatory)
+  image_size: 256 # dimensions to which images are resized (mandatory)
   center_crop: null # dimensions to which images are center-cropped after resizing (optional)
   normalization: imagenet # data distribution to which the images will be normalized: [none, imagenet]
   transform_config:
@@ -18,6 +21,14 @@ dataset:
   test_split_ratio: 0.2 # fraction of train images held out testing (usage depends on test_split_mode)
   val_split_mode: same_as_test # options: [same_as_test, from_test, synthetic]
   val_split_ratio: 0.5 # fraction of train/test images held out for validation (usage depends on val_split_mode)
+  tiling:
+    apply: false
+    tile_size: null
+    stride: null
+    remove_border_count: 0
+    use_random_tiling: False
+    random_tile_count: 16
+  seed: 42
 
 model:
   name: cfa
@@ -31,14 +42,15 @@ model:
   weight_decay: 5e-4
   amsgrad: true
   early_stopping:
-    patience: 5
-    metric: pixel_AUROC
+    patience: 30
+    metric: image_AUROC
     mode: max
   normalization_method: min_max # options: [null, min_max, cdf]
 
 metrics:
   image:
     - AUROC
+    - F1Score
   pixel:
     - AUROC
   threshold:
@@ -51,7 +63,7 @@ visualization:
   save_images: True # save images to the file system
   log_images: True # log images to the available loggers (if any)
   image_save_path: null # path to which images will be saved
-  mode: full # options: ["full", "simple"]
+  mode: simple # options: ["full", "simple"]
 
 project:
   seed: 0

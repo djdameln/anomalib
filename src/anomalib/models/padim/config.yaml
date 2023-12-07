@@ -1,7 +1,7 @@
 dataset:
-  name: vnat
+  name: vnat_laser_mark
   format: folder
-  path: ./datasets/vnat/epoxy_image
+  path: ./datasets/vnat/Laser Mark
   normal_dir: good
   abnormal_dir: bad
   normal_test_dir: null
