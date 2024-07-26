@@ -94,11 +94,25 @@ class ImageResult:
         return repr_str
 
     @classmethod
+    def from_batch(cls, batch: Batch | NumpyBatch):
+        """Create an ImageResult object from a Batch object.
+
+        This is a temporary solution until we refactor the visualizer to take a Batch object directly as input.
+        """
+        if isinstance(batch, Batch):
+            batch = batch.to_numpy()
+        batch_dict = asdict(batch)
+        batch_dict = {key: value.squeeze(0) for key, value in batch_dict.items() if isinstance(value, np.ndarray)}
+        field_names = {field.name for field in fields(cls)} & set(batch_dict.keys())
+        return cls(**dict((key, batch_dict[key]) for key in field_names))
+
+    @classmethod
     def from_dataset_item(cls, item: DatasetItem | NumpyDatasetItem):
         """Create an ImageResult object from a DatasetItem object.
 
         This is a temporary solution until we refactor the visualizer to take a DatasetItem object directly as input.
         """
+        assert item.batch_size == 1, "Can only create ImageResult from single-item batch (Hint: Call batch.items first)."
         if isinstance(item, DatasetItem):
             item = item.to_numpy()
         item_dict = asdict(item)
@@ -147,21 +161,21 @@ class ImageVisualizer(BaseVisualizer):
         """
         for item in batch:
             if item.image_path is not None:
-                image = read_image(path=item.image_path, as_tensor=True)
+                image = read_image(path=item.image_path[0], as_tensor=True)
                 # set filename
-                file_name = Path(item.image_path)
+                file_name = Path(item.image_path[0])
             elif item.video_path is not None:
-                image = item.original_image
+                image = item.original_image[0]
                 # set filename
-                zero_fill = int(np.log10(item.last_frame.cpu())) + 1
-                suffix = f"{str(item.frames.int().item()).zfill(zero_fill)}.png"
-                file_name = Path(item.video_path) / suffix
+                zero_fill = int(np.log10(item.last_frame[0].cpu())) + 1
+                suffix = f"{str(item.frames[0].int().item()).zfill(zero_fill)}.png"
+                file_name = Path(item.video_path[0]) / suffix
             else:
                 msg = "Item must have image path or video path defined."
                 raise TypeError(msg)
 
             item.replace(image=image)
-            image_result = ImageResult.from_dataset_item(item)
+            image_result = ImageResult.from_batch(item)
             yield GeneratorResult(image=self.visualize_image(image_result), file_name=file_name)
 
     def visualize_image(self, image_result: ImageResult) -> np.ndarray:

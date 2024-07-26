@@ -87,12 +87,12 @@ class GenericInput(Generic[T]):
     gt_mask: T | None = None
     gt_boxes: T | None = None
 
-    image_path: Path | None = None
-    mask_path: Path | None = None
-    video_path: Path | None = None
+    image_path: list[Path] | None = None
+    mask_path: list[Path] | None = None
+    video_path: list[Path] | None = None
     original_image: T | None = None
     frames: T | None = None
-    last_frame: int | None = None
+    last_frame: T | None = None
 
 
 @dataclass
@@ -165,9 +165,25 @@ class DatasetItem(
 
 @dataclass
 class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
+    
     def __post_init__(self):
         if self.image is not None:
-            assert self.image.ndim == 4, f"Image must have shape [N, C, H, W] or [N, H, W, C], got {self.image.shape}"
+            # validate and format image
+            assert self.image.ndim in [3, 4], "Image tensor must have 3 or 4 dimensions, got {self.image.ndim}"
+            if self.image.ndim == 3:
+                self.image = self.image.unsqueeze(0)
+
+        for name in ("anomaly_map", "pred_mask", "gt_mask"):
+            if getattr(self, name, None) is not None:
+                if getattr(self, name).ndim == 4:  # item has shape [N, 1, H, W]
+                    assert (
+                        getattr(self, name).shape[1] == 1
+                    ), f"{name} must have 1 channel, got {getattr(self, name).shape[1]}"
+                    setattr(self, name, getattr(self, name).squeeze(1))
+                if getattr(self, name).ndim == 2:  # item has shape [H, W]
+                    setattr(self, name, getattr(self, name).unsqueeze(0))
+                elif getattr(self, name).ndim != 3:
+                    raise ValueError(f"{name} must have shape [N, 1, H, W], [N, H, W] or [H, W], got {getattr(self, name).shape}")
 
         if self.anomaly_map is not None:
             if self.anomaly_map.ndim == 4:
@@ -191,6 +207,30 @@ class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
                 self.pred_label = self.pred_label.unsqueeze(0)
             elif self.pred_label.ndim != 1:
                 raise ValueError(f"Invalid shape for pred_label: {self.pred_label.shape}")
+        
+        for name in ("image_path", "video_path", "mask_path"):
+            if getattr(self, name, None) is not None:
+                if isinstance(getattr(self, name), str | Path):
+                    setattr(self, name, [Path(getattr(self, name))])
+                elif isinstance(getattr(self, name), list):
+                    assert all(isinstance(path, str | Path) for path in getattr(self, name)), f"{name} must be provided as strings or Path objects"
+                    setattr(self, name, [Path(path) for path in getattr(self, name)])
+                else:
+                    raise ValueError(f"{name} must be of type str | Path | list[str | Path], got {type(getattr(self, name))}")
+                assert len(getattr(self, name)) == self.batch_size, f"Length of {name} must match batch size"
+
+    @property
+    def items(self):
+        """Convert the batch to a list of DatasetItem objects."""
+        batch_dict = asdict(self)
+        items = []
+        for i in range(self.batch_size):
+            items.append(
+                self.__class__(
+                    **{key: value[i] if isinstance(value, Iterable) else None for key, value in batch_dict.items()},
+                ),
+            )
+        return items
 
     @property
     def batch_size(self) -> int | None:
@@ -200,11 +240,6 @@ class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
             elif hasattr(item, "__len__"):
                 return len(item)
         return None
-
-    @property
-    @abstractmethod
-    def items(self):
-        pass
 
     def __len__(self):
         return self.batch_size
@@ -221,35 +256,13 @@ class NumpyBatch(
     def __post_init__(self):
         GenericBatch.__post_init__(self)
 
-        # validate and format image
-        assert self.image.ndim == 4, "Image must have shape [N, H, W, C]"
-        if self.image.shape[1] == 3:
-            self.image = self.image.transpose(0, 2, 3, 1)  # [N, C, H, W] -> [N, H, W, C]
+        if self.image is not None:
+            if self.image.shape[1] == 3:
+                self.image = self.image.transpose(0, 2, 3, 1)  # [N, C, H, W] -> [N, H, W, C]
 
         # validate and format pred label
         if self.pred_label is not None:
             self.pred_label = self.pred_label.astype(bool)
-
-        # validate and format anomaly map
-        if self.anomaly_map is not None:
-            if self.anomaly_map.ndim == 4:
-                assert (
-                    self.anomaly_map.shape[1] == 1
-                ), f"Anomaly map must have 1 channel, got {self.anomaly_map.shape[1]}"
-                self.anomaly_map = np.squeeze(self.anomaly_map, axis=1)
-
-    @property
-    def items(self):
-        """Convert the batch to a list of DatasetItem objects."""
-        batch_dict = asdict(self)
-        items = []
-        for i in range(self.batch_size):
-            items.append(
-                NumpyDatasetItem(
-                    **{key: value[i] if isinstance(value, Iterable) else None for key, value in batch_dict.items()},
-                ),
-            )
-        return items
 
 
 @dataclass(kw_only=True)
@@ -263,11 +276,6 @@ class Batch(
     def __post_init__(self):
         GenericBatch.__post_init__(self)
 
-        # validate and format image
-        assert self.image.dim() in [3, 4], "Image must have shape [N, C, H, W] or [C, H, W]"
-        if self.image.dim() == 3:
-            self.image = self.image.unsqueeze(0)
-
         # validate and format pred score
         if self.pred_score is None and self.anomaly_map is not None:
             # infer image scores from anomaly maps
@@ -277,26 +285,8 @@ class Batch(
         if self.pred_label is not None:
             self.pred_label = self.pred_label.bool()
 
-        # validate and format anomaly map
-        if self.anomaly_map is not None:
-            assert self.anomaly_map.ndim in [
-                2,
-                3,
-                4,
-            ], f"Anomaly map must have shape [N, 1, H, W], [N, H, W] or [H, W], got {self.anomaly_map.shape}"
-            if self.anomaly_map.ndim == 4:  # anomaly map has shape [N, C, H, W]
-                assert (
-                    self.anomaly_map.shape[1] == 1
-                ), f"Anomaly map must have 1 channel, got {self.anomaly_map.shape[1]}"
-                self.anomaly_map = self.anomaly_map.squeeze(1)
-            elif self.anomaly_map.ndim == 2:
-                self.anomaly_map = self.anomaly_map.unsqueeze(0)
-
         # validate and format pred mask
         if self.pred_mask is not None:
-            if self.pred_mask.dim() == 4:  # mask has shape [N, C, H, W]
-                assert self.pred_mask.shape[1] == 1, f"Mask must have 1 channel, got {self.pred_mask.shape[1]}"
-                self.pred_mask = self.pred_mask.squeeze(1)
             self.pred_mask = self.pred_mask.bool()
 
     def to_numpy(self) -> NumpyBatch:
@@ -309,22 +299,17 @@ class Batch(
             **batch_dict,
         )
 
-    @property
-    def items(self):
-        """Convert the batch to a list of DatasetItem objects."""
-        batch_dict = asdict(self)
-        items = []
-        for i in range(self.batch_size):
-            items.append(
-                DatasetItem(
-                    **{key: value[i] if isinstance(value, Iterable) else None for key, value in batch_dict.items()},
-                ),
-            )
-        return items
-
     @classmethod
-    def collate(cls, items: list[DatasetItem]):
+    def collate(cls, items: list["Batch"]):
         """Convert a list of DatasetItem objects to a Batch object."""
         keys = [key for key, value in asdict(items[0]).items() if value is not None]
-        out_dict = {key: default_collate([getattr(item, key) for item in items]) for key in keys}
+        out_dict = {}
+        for key in keys:
+            values = [getattr(item, key) for item in items]
+            if isinstance(values[0], torch.Tensor):
+                out_dict[key] = torch.vstack(values)
+            elif isinstance(values[0], list):
+                out_dict[key] = sum(values, [])
+            else:
+                out_dict[key] = default_collate(values)
         return cls(**out_dict)
