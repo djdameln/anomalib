@@ -16,7 +16,7 @@ from skimage.segmentation import mark_boundaries
 
 from anomalib import TaskType
 from anomalib.data.utils import read_image
-from anomalib.dataclasses import Batch, DatasetItem, NumpyBatch, NumpyDatasetItem
+from anomalib.dataclasses import Batch, NumpyBatch
 from anomalib.utils.post_processing import (
     add_anomalous_label,
     add_normal_label,
@@ -105,19 +105,6 @@ class ImageResult:
         batch_dict = {key: value.squeeze(0) for key, value in batch_dict.items() if isinstance(value, np.ndarray)}
         field_names = {field.name for field in fields(cls)} & set(batch_dict.keys())
         return cls(**dict((key, batch_dict[key]) for key in field_names))
-
-    @classmethod
-    def from_dataset_item(cls, item: DatasetItem | NumpyDatasetItem):
-        """Create an ImageResult object from a DatasetItem object.
-
-        This is a temporary solution until we refactor the visualizer to take a DatasetItem object directly as input.
-        """
-        assert item.batch_size == 1, "Can only create ImageResult from single-item batch (Hint: Call batch.items first)."
-        if isinstance(item, DatasetItem):
-            item = item.to_numpy()
-        item_dict = asdict(item)
-        field_names = {field.name for field in fields(cls)} & set(item_dict.keys())
-        return cls(**dict((key, item_dict[key]) for key in field_names))
 
 
 class ImageVisualizer(BaseVisualizer):

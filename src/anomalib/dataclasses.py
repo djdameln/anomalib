@@ -1,5 +1,5 @@
 import warnings
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Iterable
 from dataclasses import asdict, astuple, dataclass, fields, is_dataclass, replace
 from pathlib import Path
@@ -107,65 +107,7 @@ class GenericOutput(Generic[T]):
 
 
 @dataclass
-class GenericDatasetItem(Generic[T], GenericInput[T], GenericOutput[T]):
-    def __post_init__(self):
-        if self.image is not None:
-            assert self.image.ndim == 3, "Image must have shape [C, H, W] or [H, W, C]"
-
-        if self.anomaly_map is not None:
-            assert (
-                self.anomaly_map.ndim == 2 or self.anomaly_map.ndim == 3
-            ), "Anomaly map must have shape [H, W] or [C, H, W]"
-            if self.anomaly_map.ndim == 3:
-                assert (
-                    self.anomaly_map.shape[0] == 1 or self.anomaly_map.shape[-1] == 1
-                ), f"Anomaly map must have 1 channel, got shape {self.anomaly_map.shape}"
-                self.anomaly_map = self.anomaly_map.squeeze(1)
-
-
-@dataclass
-class NumpyDatasetItem(
-    ReplaceMixin,
-    GenericDatasetItem[np.ndarray],
-):
-    def __post_init__(self):
-        GenericDatasetItem.__post_init__(self)
-
-        # validate and format image
-        assert self.image.ndim == 3, "Image must have shape [H, W, C]"
-        if self.image.shape[0] == 3:
-            self.image = self.image.transpose(1, 2, 0)  # [C, H, W] -> [H, W, C]
-
-
-@dataclass
-class DatasetItem(
-    BackwardCompatibilityMixin,
-    ReplaceMixin,
-    GenericDatasetItem[torch.Tensor],
-):
-    """Base class for storing"""
-
-    def __post_init__(self):
-        GenericDatasetItem.__post_init__(self)
-
-        # validate and format image
-        if self.image.shape[2] == 3:
-            self.image = self.image.permute(2, 0, 1)  # [H, W, C] -> [C, H, W]
-
-    def to_numpy(self) -> NumpyDatasetItem:
-        """Convert the dataset item to a NumpyBatch object."""
-        batch_dict = asdict(self)
-        for key, value in batch_dict.items():
-            if isinstance(value, torch.Tensor):
-                batch_dict[key] = value.cpu().numpy()
-        return NumpyDatasetItem(
-            **batch_dict,
-        )
-
-
-@dataclass
 class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
-    
     def __post_init__(self):
         if self.image is not None:
             # validate and format image
@@ -183,7 +125,9 @@ class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
                 if getattr(self, name).ndim == 2:  # item has shape [H, W]
                     setattr(self, name, getattr(self, name).unsqueeze(0))
                 elif getattr(self, name).ndim != 3:
-                    raise ValueError(f"{name} must have shape [N, 1, H, W], [N, H, W] or [H, W], got {getattr(self, name).shape}")
+                    raise ValueError(
+                        f"{name} must have shape [N, 1, H, W], [N, H, W] or [H, W], got {getattr(self, name).shape}"
+                    )
 
         if self.anomaly_map is not None:
             if self.anomaly_map.ndim == 4:
@@ -207,16 +151,20 @@ class GenericBatch(Generic[T], GenericInput[T], GenericOutput[T], ABC):
                 self.pred_label = self.pred_label.unsqueeze(0)
             elif self.pred_label.ndim != 1:
                 raise ValueError(f"Invalid shape for pred_label: {self.pred_label.shape}")
-        
+
         for name in ("image_path", "video_path", "mask_path"):
             if getattr(self, name, None) is not None:
                 if isinstance(getattr(self, name), str | Path):
                     setattr(self, name, [Path(getattr(self, name))])
                 elif isinstance(getattr(self, name), list):
-                    assert all(isinstance(path, str | Path) for path in getattr(self, name)), f"{name} must be provided as strings or Path objects"
+                    assert all(
+                        isinstance(path, str | Path) for path in getattr(self, name)
+                    ), f"{name} must be provided as strings or Path objects"
                     setattr(self, name, [Path(path) for path in getattr(self, name)])
                 else:
-                    raise ValueError(f"{name} must be of type str | Path | list[str | Path], got {type(getattr(self, name))}")
+                    raise ValueError(
+                        f"{name} must be of type str | Path | list[str | Path], got {type(getattr(self, name))}"
+                    )
                 assert len(getattr(self, name)) == self.batch_size, f"Length of {name} must match batch size"
 
     @property

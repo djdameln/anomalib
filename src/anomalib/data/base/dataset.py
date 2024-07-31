@@ -17,7 +17,7 @@ from torchvision.transforms.v2 import Transform
 from torchvision.tv_tensors import Mask
 
 from anomalib import TaskType
-from anomalib.dataclasses import DatasetItem, Batch
+from anomalib.dataclasses import Batch
 from anomalib.data.utils import LabelName, masks_to_boxes, read_image, read_mask
 
 _EXPECTED_COLUMNS_CLASSIFICATION = ["image_path", "split"]
