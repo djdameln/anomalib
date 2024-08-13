@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 from pandas import DataFrame
 from torchvision.transforms.v2 import Transform
-from torchvision.transforms.v2.functional import to_dtype_video
+from torchvision.transforms.v2.functional import to_dtype, to_dtype_video
 from torchvision.tv_tensors import Mask
 
 from anomalib import TaskType
@@ -156,7 +156,7 @@ class AnomalibVideoDataset(AnomalibDataset, ABC):
         item = self.indexer.get_item(index)
         item["image"] = to_dtype_video(video=item["image"], scale=True)
         # include the untransformed image for visualization
-        item["original_image"] = item["image"].to(torch.uint8)
+        item["original_image"] = to_dtype(item["image"], torch.uint8, scale=True)
 
         # apply transforms
         if item.get("mask") is not None:
